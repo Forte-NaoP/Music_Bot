@@ -63,6 +63,7 @@ impl CommandList {
 lazy_static! {
     pub static ref COMMAND_LIST: CommandList = CommandList {
         commands: HashMap::from([
+            ("도움말", commands::help::command()),
         ])
     };
 }
