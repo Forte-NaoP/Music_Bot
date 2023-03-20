@@ -66,6 +66,7 @@ lazy_static! {
             ("도움말", commands::help::command()),
             ("접속", commands::connect::command()),
             ("퇴장", commands::disconnect::command()),
+            ("재생", commands::play::command()),
         ])
     };
 }

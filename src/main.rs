@@ -46,6 +46,8 @@ async fn main() -> Result<()> {
         | GatewayIntents::GUILD_MESSAGE_REACTIONS
         | GatewayIntents::GUILD_MEMBERS
         | GatewayIntents::MESSAGE_CONTENT
+        | GatewayIntents::GUILD_VOICE_STATES
+        | GatewayIntents::DIRECT_MESSAGES
     ;
 
     let mut client = Client::builder(
