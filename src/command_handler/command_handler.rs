@@ -65,6 +65,7 @@ lazy_static! {
         commands: HashMap::from([
             ("도움말", commands::help::command()),
             ("접속", commands::connect::command()),
+            ("퇴장", commands::disconnect::command()),
         ])
     };
 }
