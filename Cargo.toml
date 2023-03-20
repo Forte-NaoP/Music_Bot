@@ -23,7 +23,7 @@ scraper = "0.13.0"
 futures = "0.3.25"
 url = "2.3.1"
 audiopus_sys = "0.2.2"
-songbird = { version = "0.3.0", features = ["driver", "gateway", "serenity-rustls", "yt-dlp"]}
+songbird = { version = "0.3.0", features = ["driver", "gateway", "serenity", "builtin-queue","serenity-rustls", "yt-dlp"]}
 lavalink-rs = {git = "https://gitlab.com/vicky5124/lavalink-rs",  branch = "master", features = ["rustls"]}
 
 [dependencies.tokio]

@@ -2,6 +2,7 @@ use std::{env, vec};
 use std::{time::Duration, sync::Arc};
 
 use rusqlite::{Result, params};
+use songbird::SerenityInit;
 use tokio_rusqlite::Connection as Connection;
 
 use serenity::async_trait;
@@ -52,6 +53,7 @@ async fn main() -> Result<()> {
         intents
     )
     .event_handler(event_handler::event_handler::DiscordEventHandler)
+    .register_songbird()
     .framework(framework)
     .await
     .expect("Error creating client");
