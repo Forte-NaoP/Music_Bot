@@ -18,7 +18,11 @@ use serenity::{
         guild::Guild,
     },
 };
-use songbird::Songbird;
+use songbird::{
+    Songbird,
+    input,
+    tracks::create_player,
+};
 
 use crate::{
     command_handler::{
@@ -56,16 +60,18 @@ impl CommandInterface for Help {
 
         if let Some(handler_lock) = voice_manager.get(gid) {
             let mut handler = handler_lock.lock().await;
-            let src = match songbird::ytdl(url).await {
+            let src = match input::Restartable::ytdl(url, true).await {
                 Ok(src) => src,
                 Err(why) => {
                     println!("Err starting source: {:?}", why);
                     return CommandReturn::String("재생 못함".to_owned())
                 }
             };
+            let (mut audio, audio_handle) = create_player(src.into());
+
             println!("{}", handler.current_channel().unwrap());
-            println!("{:#?}", src.metadata);
-            handler.play_source(src);
+            audio_handle.enable_loop().expect("restartable err");
+            handler.play(audio);
             
         }
 
