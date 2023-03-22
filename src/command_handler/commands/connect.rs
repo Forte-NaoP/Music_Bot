@@ -24,17 +24,18 @@ use crate::{
         command_handler::*,
         command_data::*,
         command_return::CommandReturn,
-    }
+    },
+    connection_handler::*,
 };
 
-struct Help;
+struct Connect;
 
 pub fn command() -> Box<dyn CommandInterface + Sync + Send> {
-    Box::new(Help)
+    Box::new(Connect)
 }
 
 #[async_trait]
-impl CommandInterface for Help {
+impl CommandInterface for Connect {
     async fn run(
         &self, 
         ctx: &Context, 
@@ -43,17 +44,21 @@ impl CommandInterface for Help {
     ) -> CommandReturn {
 
         let gid = command.guild_id.unwrap();
+        let guild = ctx.cache.guild(gid).unwrap();
 
         let voice_manager = songbird::get(ctx).await.expect("Songbird Voice client placed in at initialisation.");
 
-        match connection_check(&command.user.id, &ctx.cache.guild(&gid), &voice_manager).await {
-            Some(r) => {
-                let (voice_node, voice_check) = voice_manager.join(gid.clone(), r).await;
+        match establish_connection(&command.user.id, &guild, &voice_manager).await {
+            Ok(success) => match success {
+                ConnectionSuccessCode::AlreadyConnected => CommandReturn::String("이미 음성채널에 접속되어 있습니다.".to_owned()),
+                ConnectionSuccessCode::NewConnection => CommandReturn::String("음성채널에 접속했습니다.".to_owned())
             },
-            None => ()
+            Err(why) => match why {
+                ConnectionErrorCode::JoinVoiceChannelFirst => CommandReturn::String("음성채널에 먼저 접속해주세요.".to_owned()),
+                ConnectionErrorCode::AlreadyInUse => CommandReturn::String("다른 채널에서 사용중입니다.".to_owned()),
+                _ => CommandReturn::String("연결에 실패했습니다.".to_owned()),
+            },
         }
-
-        CommandReturn::String("와 정말 알고 싶던 정보였어요".to_owned())
     }
 
     fn register<'a: 'b, 'b>(
@@ -63,24 +68,5 @@ impl CommandInterface for Help {
         command
             .name("접속")
             .description("접속")
-    }
-}
-
-async fn connection_check(uid: &UserId, guild: &Option<Guild>, voice_manager: &Songbird) -> Option<ChannelId>{
-    return match guild {
-        Some(g) => {
-            match g.voice_states.get(uid).and_then(|vs| vs.channel_id) {
-                Some(user_ch_id) => { //유저가 음성채널에 있을떄
-                    match voice_manager.get(g.id) {
-                        Some(call) => {
-                            None
-                        },
-                        None => Some(user_ch_id) // 음성채널에 연결 가능
-                    }
-                },
-                None => None // 유저가 음성채널에 없을때
-            }
-        },
-        None => None // 길드 정보 없을때
     }
 }

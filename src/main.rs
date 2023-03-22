@@ -22,6 +22,7 @@ use env_logger::Env;
 mod command_handler;
 mod event_handler;
 mod database_handler;
+mod connection_handler;
 
 struct DBContainer;
 impl TypeMapKey for DBContainer {

@@ -24,17 +24,17 @@ use crate::{
         command_handler::*,
         command_data::*,
         command_return::CommandReturn,
-    }
+    }, connection_handler::terminate_connection
 };
 
-struct Help;
+struct Disconnect;
 
 pub fn command() -> Box<dyn CommandInterface + Sync + Send> {
-    Box::new(Help)
+    Box::new(Disconnect)
 }
 
 #[async_trait]
-impl CommandInterface for Help {
+impl CommandInterface for Disconnect {
     async fn run(
         &self, 
         ctx: &Context, 
@@ -43,12 +43,12 @@ impl CommandInterface for Help {
     ) -> CommandReturn {
 
         let gid = command.guild_id.unwrap();
+        let guild = ctx.cache.guild(gid).unwrap();
 
         let voice_manager = songbird::get(ctx).await.expect("Songbird Voice client placed in at initialisation.");
 
-        voice_manager.remove(gid).await.expect("Songbird Voice client disconnect fail.");
-
-        CommandReturn::String("난 여길 빠져나가야 겠어".to_owned())
+        terminate_connection(&guild, &voice_manager).await;
+        CommandReturn::String("접속을 종료합니다.".to_owned())
     }
 
     fn register<'a: 'b, 'b>(
