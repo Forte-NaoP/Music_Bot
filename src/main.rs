@@ -23,6 +23,7 @@ mod command_handler;
 mod event_handler;
 mod database_handler;
 mod connection_handler;
+mod utils;
 
 struct DBContainer;
 impl TypeMapKey for DBContainer {
@@ -60,10 +61,10 @@ async fn main() -> Result<()> {
     .framework(framework)
     .await
     .expect("Error creating client");
-    // {
-    //     let mut data = client.data.write().await;
-    //     data.insert::<DBContainer>(conn);
-    // }
+    {
+        let mut data = client.data.write().await;
+        data.insert::<DBContainer>(conn);
+    }
     
     if let Err(why) = client.start().await {
         println!("An error occurred while running the client: {:?}", why);
