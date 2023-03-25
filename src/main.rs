@@ -36,8 +36,8 @@ async fn main() -> Result<()> {
 
     env_logger::init_from_env(log_env);
 
-    // let conn = Connection::open("music.db").await?;
-    // database_handler::initialize(&conn).await?;
+    let conn = Connection::open("music.db").await?;
+    database_handler::initialize(&conn).await?;
 
     let framework = StandardFramework::new();
 
