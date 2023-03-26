@@ -67,6 +67,8 @@ lazy_static! {
             ("접속", commands::connect::command()),
             ("퇴장", commands::disconnect::command()),
             ("재생", commands::play::command()),
+            ("곡추가", commands::add_song::command()),
+            ("큐잉", commands::insert_queue::command()),
         ])
     };
 }

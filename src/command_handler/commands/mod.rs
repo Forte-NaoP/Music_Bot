@@ -4,3 +4,4 @@ pub mod connect;
 pub mod disconnect;
 pub mod play;
 pub mod add_song;
+pub mod insert_queue;

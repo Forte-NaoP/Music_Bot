@@ -1,5 +1,5 @@
 use std::{env, vec};
-use std::{time::Duration, sync::Arc};
+use std::{time::Duration, sync::Arc, collections::VecDeque};
 
 use rusqlite::{Result, params};
 use songbird::SerenityInit;
@@ -28,6 +28,11 @@ mod utils;
 struct DBContainer;
 impl TypeMapKey for DBContainer {
     type Value = Connection;
+}
+
+struct MusicQueue;
+impl TypeMapKey for MusicQueue {
+    type Value = Arc<RwLock<VecDeque<String>>>;
 }
 
 #[tokio::main]
@@ -64,6 +69,8 @@ async fn main() -> Result<()> {
     {
         let mut data = client.data.write().await;
         data.insert::<DBContainer>(conn);
+        let mut queue = VecDeque::new();
+        data.insert::<MusicQueue>(Arc::new(RwLock::new(queue)));
     }
     
     if let Err(why) = client.start().await {
