@@ -32,7 +32,7 @@ use crate::{
         command_data::*,
         command_return::CommandReturn,
     },
-    utils::url_checker::url_checker,
+    utils::url_checker::{url_checker, UrlType},
     database_handler::*, DBContainer,
 };
 
@@ -62,7 +62,7 @@ impl CommandInterface for AddSong {
             None => return CommandReturn::String("제목을 입력해주세요.".to_string()),
         };
 
-        let url = match url_checker(&url) {
+        let url = match url_checker(&url, UrlType::ID) {
             Some(url) => url,
             None => return CommandReturn::String("유효한 url이 아닙니다.".to_string()),
         };

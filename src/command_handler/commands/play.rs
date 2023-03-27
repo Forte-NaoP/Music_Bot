@@ -1,10 +1,12 @@
-use std::{vec, collections::VecDeque, time::Duration};
+use std::{vec, collections::VecDeque, time::Duration, sync::Arc};
 
 use tokio::time::sleep;
 use serenity::{
     async_trait,
     builder::CreateApplicationCommand,
-    client::{Context},
+    client::{
+        Context,
+    },
     framework::standard::{
         CommandResult, Args,
     },
@@ -18,11 +20,14 @@ use serenity::{
         },
         user::User,
         guild::Guild,
+        Timestamp,
     },
+    http::Http,
 };
 use songbird::{
     Songbird,
-    input,
+    input::{ffmpeg, ffmpeg_optioned, *},
+
     tracks::create_player,
     EventHandler as VoiceEventHandler,
     EventContext,
@@ -36,6 +41,7 @@ use crate::{
         command_return::CommandReturn,
     },
     MusicQueue,
+    utils::url_checker::{url_checker, UrlType},
 };
 
 struct TrackEndNotifier;
@@ -93,40 +99,52 @@ impl CommandInterface for Play {
             },
         };
 
+        let http = ctx.http.clone();
+        let current_channel = command.channel_id.clone();
         let mut handler_lock = voice_manager.get(gid).unwrap();
-        let mut handler = handler_lock.lock().await;
-        
-        if let Some(url) = url {
-            let src = match input::Restartable::ytdl(url, true).await {
-                Ok(src) => src,
-                Err(why) => {
-                    println!("Err starting source: {:?}", why);
-                    return CommandReturn::String("재생 못함".to_owned())
-                }
-            };
-            let (mut audio, audio_handle) = create_player(src.into());
-            audio_handle.add_event(Event::Track(TrackEvent::End), TrackEndNotifier).unwrap();
-            handler.play(audio);
-            sleep(Duration::from_secs(30)).await;
-            handler.stop();
-        } else {
-            while let Some(song_url) = queue.write().await.pop_front() {
-                let src = match input::Restartable::ytdl(song_url, true).await {
-                    Ok(src) => src,
-                    Err(why) => {
-                        println!("Err starting source: {:?}", why);
-                        return CommandReturn::String("재생 못함".to_owned())
-                    }
-                };
-                let (mut audio, audio_handle) = create_player(src.into());
-                audio_handle.add_event(Event::Track(TrackEvent::End), TrackEndNotifier).unwrap();
-                handler.play(audio);
-                sleep(Duration::from_secs(30)).await;
-                handler.stop();
-            }
-        }
 
-        CommandReturn::String("와 정말 알고 싶던 정보였어요".to_owned())
+        if let Some(url) = url {
+            let url = url_checker(url.as_str(), UrlType::URL).unwrap();
+            println!("{}", url);
+            //let src = ffmpeg_optioned(url, &[], &["-t", "30"]).await.unwrap();
+            let src = ytdl(url).await.unwrap();
+            let (mut audio, audio_handle) = create_player(src.into());
+            let title = String::from("test");//audio_handle.metadata().title.clone().unwrap();
+            let mut handler = handler_lock.lock().await;
+            audio_handle.add_event(Event::Track(TrackEvent::End), TrackEndNotifier).unwrap();
+            println!("{:?}", audio_handle.metadata());
+            handler.play(audio);
+
+            // let mut msg = current_channel.send_message(&http, |msg| {
+            //     msg.embed(|embed| {
+            //         embed.title("현재 재생중인 곡");
+            //         embed.description(format!("{}\n00:{:02}/00:30", title, 0));
+            //         embed.color(0x00ff00);
+            //         embed
+            //     });
+            //     msg
+            // }).await.unwrap();
+
+            // tokio::spawn(async move {
+            //     for i in 1..31 {
+            //         sleep(Duration::from_secs(1)).await;
+            //         msg.edit(&http, |msg| {
+            //             msg.embed(|embed| {
+            //                 embed.title("현재 재생중인 곡");
+            //                 embed.description(format!("{}\n00:{:02}/00:30", title, i));
+            //                 embed.color(0x00ff00);
+            //                 embed
+            //             });
+            //             msg
+            //         }).await.unwrap();
+            //     }
+            // }).await.unwrap();
+        } else {
+            
+            
+        }
+        sleep(Duration::from_secs(5)).await;
+        CommandReturn::String("재생 종료".to_owned())
     }
 
     fn register<'a: 'b, 'b>(
