@@ -41,7 +41,10 @@ use crate::{
         command_return::CommandReturn,
     },
     MusicQueue,
-    utils::url_checker::{url_checker, UrlType},
+    utils::{
+        url_checker::{url_checker},
+        audio_module::youtube_dl::{self, ytdl_optioned},
+    }
 };
 
 struct TrackEndNotifier;
@@ -75,18 +78,18 @@ impl CommandInterface for Play {
         let voice_manager = songbird::get(ctx).await.expect("Songbird Voice client placed in at initialisation.");
         let queue = ctx.data.read().await.get::<MusicQueue>().unwrap().clone();
 
-        let mut play_time = 0;
-        let mut start_time = 0;
+        let mut play_time: u64 = 0;
+        let mut start_time: u64 = 0;
         
         let url = match Option::<String>::from(DataWrapper::from(options, 0)) {
             Some(url) => {
                 play_time = match Option::<i64>::from(DataWrapper::from(options, 1)) {
-                    Some(play_time) => play_time,
+                    Some(play_time) => play_time.abs() as u64,
                     None => 0,
                 };
         
                 start_time = match Option::<i64>::from(DataWrapper::from(options, 2)) {
-                    Some(start_time) => start_time,
+                    Some(start_time) => start_time.abs() as u64,
                     None => 0,
                 };
 
@@ -104,46 +107,25 @@ impl CommandInterface for Play {
         let mut handler_lock = voice_manager.get(gid).unwrap();
 
         if let Some(url) = url {
-            let url = url_checker(url.as_str(), UrlType::URL).unwrap();
-            println!("{}", url);
-            //let src = ffmpeg_optioned(url, &[], &["-t", "30"]).await.unwrap();
-            let src = ytdl(url).await.unwrap();
+            let url = match url_checker(url.as_str()) {
+                Some(url) => url,
+                None => return CommandReturn::String("url이 잘못되었습니다.".to_string()),
+            };
+
+            //let src = ytdl(url).await.unwrap();
+            let src = ytdl_optioned(url, start_time.to_string(), play_time.to_string()).await.unwrap();
+            println!("play_time {}, start__time {}", play_time, start_time);
             let (mut audio, audio_handle) = create_player(src.into());
-            let title = String::from("test");//audio_handle.metadata().title.clone().unwrap();
             let mut handler = handler_lock.lock().await;
             audio_handle.add_event(Event::Track(TrackEvent::End), TrackEndNotifier).unwrap();
             println!("{:?}", audio_handle.metadata());
+            println!("{:?}", audio);
             handler.play(audio);
 
-            // let mut msg = current_channel.send_message(&http, |msg| {
-            //     msg.embed(|embed| {
-            //         embed.title("현재 재생중인 곡");
-            //         embed.description(format!("{}\n00:{:02}/00:30", title, 0));
-            //         embed.color(0x00ff00);
-            //         embed
-            //     });
-            //     msg
-            // }).await.unwrap();
-
-            // tokio::spawn(async move {
-            //     for i in 1..31 {
-            //         sleep(Duration::from_secs(1)).await;
-            //         msg.edit(&http, |msg| {
-            //             msg.embed(|embed| {
-            //                 embed.title("현재 재생중인 곡");
-            //                 embed.description(format!("{}\n00:{:02}/00:30", title, i));
-            //                 embed.color(0x00ff00);
-            //                 embed
-            //             });
-            //             msg
-            //         }).await.unwrap();
-            //     }
-            // }).await.unwrap();
         } else {
             
             
         }
-        sleep(Duration::from_secs(5)).await;
         CommandReturn::String("재생 종료".to_owned())
     }
 
