@@ -114,12 +114,9 @@ impl CommandInterface for Play {
 
             //let src = ytdl(url).await.unwrap();
             let src = ytdl_optioned(url, start_time.to_string(), play_time.to_string()).await.unwrap();
-            println!("play_time {}, start__time {}", play_time, start_time);
             let (mut audio, audio_handle) = create_player(src.into());
             let mut handler = handler_lock.lock().await;
             audio_handle.add_event(Event::Track(TrackEvent::End), TrackEndNotifier).unwrap();
-            println!("{:?}", audio_handle.metadata());
-            println!("{:?}", audio);
             handler.play(audio);
 
         } else {
