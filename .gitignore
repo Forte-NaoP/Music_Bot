@@ -3,3 +3,4 @@ Cargo.lock
 .vscode/settings.json
 quiz_rs.code-workspace
 *.db
+/tmp
