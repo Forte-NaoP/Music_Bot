@@ -17,7 +17,7 @@ use tokio::{
     }
 };
 use songbird::input::{
-    children_to_reader,
+    Reader,
     error::{Error, Result},
     Codec,
     Container,
@@ -44,9 +44,8 @@ const YTDL_PRE_ARGS: [&str; 10] = [
     "--no-warnings",
 ];
 
-const YTDL_COMMON_ARGS: [&str; 9] = [
+const YTDL_COMMON_ARGS: [&str; 8] = [
     "-j",
-    "--no-simulate",
     "-f",
     "webm[abr>0]/bestaudio/best",
     "-R",
@@ -76,13 +75,13 @@ pub async fn ytdl_optioned(url: impl AsRef<str>, start: String, duration: String
     let output = Path::new(&output_path);
     let value = if output.exists() && output.is_file() {
         // 파일이 있으면 메타데이터만 다운로드
-        println!("file exists");
         _ytdl_optioned(&["--simulate", url.as_ref()]).await
     } else {
         // 파일이 없으면 다운로드
-        println!("file not exists");
         _ytdl_optioned(&["--no-simulate", url.as_ref(), "-o", output_path.as_ref()]).await
     };
+
+    let metadata = Metadata::from_ytdl_output(value?);
 
     let mut ffmpeg = Command::new("ffmpeg")
         .args(&["-ss", start.as_ref()])
@@ -95,11 +94,16 @@ pub async fn ytdl_optioned(url: impl AsRef<str>, start: String, duration: String
         .spawn()
         .unwrap();
 
-    let metadata = Metadata::from_ytdl_output(value?);
-    //ffmpeg.wait().unwrap();
+    // songbird 내부적으로 알아서 ytdl과 ffmpeg를 wait하는지 모르겠지만
+    // 혹시라도 defunct 상태로 있는게 싫어서 그냥 직접 wait 하고 Reader::from_memory 사용함
+    let mut stdout = ffmpeg.stdout.take().unwrap();
+    let mut o_vec = vec![];
+    stdout.read_to_end(&mut o_vec).unwrap();
+    ffmpeg.wait().unwrap();
+
     Ok(Input::new(
         true,
-        children_to_reader::<f32>(vec![ffmpeg]),
+        Reader::from_memory(o_vec),
         Codec::FloatPcm,
         Container::Raw,
         Some(metadata),
