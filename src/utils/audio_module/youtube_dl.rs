@@ -69,7 +69,7 @@ const FFMPEG_ARGS: [&str; 9] = [
 
 const TMP_FORLDER: &str = "./tmp/";
 
-pub async fn ytdl_optioned(url: impl AsRef<str>, start: String, duration: String) -> Result<Input> {
+pub async fn ytdl_optioned(url: impl AsRef<str>, mut start: u64, mut duration: u64) -> Result<Input> {
 
     let output_path = format!("{}{}", TMP_FORLDER, url.as_ref());
     let output = Path::new(&output_path);
@@ -83,10 +83,14 @@ pub async fn ytdl_optioned(url: impl AsRef<str>, start: String, duration: String
 
     let metadata = Metadata::from_ytdl_output(value?);
 
+    if duration == 0 {
+        duration = metadata.duration.unwrap().as_secs();
+    }
+
     let mut ffmpeg = Command::new("ffmpeg")
-        .args(&["-ss", start.as_ref()])
+        .args(&["-ss", start.to_string().as_ref()])
         .args(&["-i", output_path.as_ref()])
-        .args(&["-t", duration.as_ref()])
+        .args(&["-t", duration.to_string().as_ref()])
         .args(&FFMPEG_ARGS)
         .stderr(Stdio::null())
         .stdin(Stdio::null())

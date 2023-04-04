@@ -1,9 +1,9 @@
-use std::{vec, collections::VecDeque, time::Duration, sync::Arc};
+use std::{vec, collections::VecDeque, time::Duration, sync::Arc, fs::metadata};
 
 use tokio::time::sleep;
 use serenity::{
     async_trait,
-    builder::CreateApplicationCommand,
+    builder::{CreateApplicationCommand, CreateEmbed},
     client::{
         Context,
     },
@@ -28,7 +28,7 @@ use songbird::{
     Songbird,
     input::{ffmpeg, ffmpeg_optioned, *},
 
-    tracks::create_player,
+    tracks::{create_player, PlayMode},
     EventHandler as VoiceEventHandler,
     EventContext,
     Event, TrackEvent,
@@ -44,6 +44,7 @@ use crate::{
     utils::{
         url_checker::{url_checker},
         audio_module::youtube_dl::{self, ytdl_optioned},
+        play_info_notifier::{create_play_info_embed}
     }
 };
 
@@ -104,24 +105,50 @@ impl CommandInterface for Play {
 
         let http = ctx.http.clone();
         let current_channel = command.channel_id.clone();
-        let mut handler_lock = voice_manager.get(gid).unwrap();
+        let handler_lock = voice_manager.get(gid).unwrap();
 
         if let Some(url) = url {
             let url = match url_checker(url.as_str()) {
                 Some(url) => url,
                 None => return CommandReturn::String("url이 잘못되었습니다.".to_string()),
             };
-
-            //let src = ytdl(url).await.unwrap();
-            let src = ytdl_optioned(url, start_time.to_string(), play_time.to_string()).await.unwrap();
-            let (mut audio, audio_handle) = create_player(src.into());
+            let src = ytdl_optioned(url, start_time, play_time).await.unwrap();
             let mut handler = handler_lock.lock().await;
+            let mut audio_handle = handler.play_source(src);
+            
             audio_handle.add_event(Event::Track(TrackEvent::End), TrackEndNotifier).unwrap();
-            handler.play(audio);
+            let mut last_edit_time = std::time::Instant::now();
+            let mut current_time = 0;
+
+            loop {
+                if last_edit_time.elapsed() > Duration::from_secs(1) {
+                    current_time += 1;
+                    // create_play_info_embed(title.as_str(), current_time, total);
+                }
+                let status = audio_handle.get_info().await.unwrap().playing;
+                if status == PlayMode::End || status == PlayMode::Stop {
+                    break;
+                }
+            }
 
         } else {
-            
-            
+            tokio::spawn(async move {
+                let mut handler = handler_lock.lock().await;
+                while let Some(song_url) = queue.write().await.pop_front() {
+                    let src = match ytdl_optioned(song_url, 0, 0).await {
+                        Ok(src) => src,
+                        Err(why) => {
+                            println!("Err starting source: {:?}", why);
+                            continue;
+                        }
+                    };
+                    let (mut audio, audio_handle) = create_player(src.into());
+                    audio_handle.add_event(Event::Track(TrackEvent::End), TrackEndNotifier).unwrap();
+                    handler.play(audio);
+                    //sleep(Duration::from_secs(30)).await;
+                    //handler.stop();
+                }
+            }).await.unwrap();
         }
         CommandReturn::String("재생 종료".to_owned())
     }
