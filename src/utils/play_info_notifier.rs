@@ -51,7 +51,12 @@ use crate::{
 pub fn create_play_info_embed(title: &str, current: u64, total: u64) -> CreateEmbed {
     let mut embed = CreateEmbed::default();
     embed.title("현재 재생중인 곡")
-        .description(format!("{}\n{}/{}", title, 0, duration_format(total)));
+        .description(format!("{}\n{}/{}", title, duration_format(0), duration_format(total)));
+    embed
+}
+
+pub fn update_play_info_embed(mut embed: CreateEmbed, title: &str, current: u64, total: u64) -> CreateEmbed {
+    embed.description(format!("{}\n{}/{}", title, duration_format(current), duration_format(total)));
     embed
 }
 

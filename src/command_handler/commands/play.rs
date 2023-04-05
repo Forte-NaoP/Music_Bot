@@ -44,7 +44,7 @@ use crate::{
     utils::{
         url_checker::{url_checker},
         audio_module::youtube_dl::{self, ytdl_optioned},
-        play_info_notifier::{create_play_info_embed}
+        play_info_notifier::{create_play_info_embed, update_play_info_embed}
     }
 };
 
@@ -113,17 +113,40 @@ impl CommandInterface for Play {
                 None => return CommandReturn::String("url이 잘못되었습니다.".to_string()),
             };
             let src = ytdl_optioned(url, start_time, play_time).await.unwrap();
+            let metadata = src.metadata.clone();
+            let title = metadata.title.unwrap();
+            let duration = if play_time != 0 {
+                play_time
+            } else {
+                metadata.duration.unwrap().as_secs()
+            };
+
             let mut handler = handler_lock.lock().await;
             let mut audio_handle = handler.play_source(src);
-            
             audio_handle.add_event(Event::Track(TrackEvent::End), TrackEndNotifier).unwrap();
-            let mut last_edit_time = std::time::Instant::now();
+            let mut last_edit_time = audio_handle.get_info().await.unwrap().position;
             let mut current_time = 0;
 
+            let mut embed = create_play_info_embed(title.as_ref(), current_time, duration);
+            let mut msg = current_channel.send_message(&http, |m| {
+                m.embed(|e| {
+                    e.clone_from(&embed);
+                    e
+                })
+            }).await.unwrap();
             loop {
-                if last_edit_time.elapsed() > Duration::from_secs(1) {
+                
+                if audio_handle.get_info().await.unwrap().position > Duration::from_secs(1) {
                     current_time += 1;
-                    // create_play_info_embed(title.as_str(), current_time, total);
+                    let now = audio_handle.get_info().await.unwrap().position.as_secs();
+                    embed = update_play_info_embed(embed, title.as_ref(), now, duration);
+                    msg.edit(&http, |m| {
+                        m.embed(|e| {
+                            e.clone_from(&embed);
+                            e
+                        })
+                    }).await.unwrap();
+                    last_edit_time = audio_handle.get_info().await.unwrap().position;
                 }
                 let status = audio_handle.get_info().await.unwrap().playing;
                 if status == PlayMode::End || status == PlayMode::Stop {
@@ -145,8 +168,6 @@ impl CommandInterface for Play {
                     let (mut audio, audio_handle) = create_player(src.into());
                     audio_handle.add_event(Event::Track(TrackEvent::End), TrackEndNotifier).unwrap();
                     handler.play(audio);
-                    //sleep(Duration::from_secs(30)).await;
-                    //handler.stop();
                 }
             }).await.unwrap();
         }
