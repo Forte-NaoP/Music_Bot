@@ -86,7 +86,13 @@ pub async fn ytdl_optioned(url: impl AsRef<str>, mut start: u64, mut duration: u
     if duration == 0 {
         duration = metadata.duration.unwrap().as_secs();
     }
-
+    if start >= metadata.duration.unwrap().as_secs() {
+        start = 0;
+    }
+    if start + duration > metadata.duration.unwrap().as_secs() {
+        duration = metadata.duration.unwrap().as_secs() - start;
+    }
+    
     let mut ffmpeg = Command::new("ffmpeg")
         .args(&["-ss", start.to_string().as_ref()])
         .args(&["-i", output_path.as_ref()])
