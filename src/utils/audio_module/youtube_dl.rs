@@ -69,6 +69,10 @@ const FFMPEG_ARGS: [&str; 9] = [
 
 const TMP_FORLDER: &str = "./tmp/";
 
+pub async fn ytdl(url: impl AsRef<str>) -> Result<Input> {
+    ytdl_optioned(url, 0, 0).await
+}
+
 pub async fn ytdl_optioned(url: impl AsRef<str>, mut start: u64, mut duration: u64) -> Result<Input> {
 
     let output_path = format!("{}{}", TMP_FORLDER, url.as_ref());
