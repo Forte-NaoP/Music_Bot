@@ -22,6 +22,7 @@ use crate::{
         commands::*,
         command_return::CommandReturn, self,
     },
+    utils::guild_queue::{*, self},
 };
 
 use std::env;
@@ -33,6 +34,8 @@ pub struct DiscordEventHandler;
 impl EventHandler for DiscordEventHandler {
     async fn ready(&self, ctx: Context, ready: Ready) {
         println!("{} is connected!", ready.user.tag());
+
+        guild_queue::initialize(&ctx).await;
 
         let commands = Command::get_global_application_commands(&ctx.http).await.unwrap();
 

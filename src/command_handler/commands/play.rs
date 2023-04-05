@@ -40,12 +40,12 @@ use crate::{
         command_data::*,
         command_return::CommandReturn,
     },
-    MusicQueue,
     utils::{
         url_checker::{url_checker},
         audio_module::youtube_dl::{self, ytdl_optioned},
         play_info_notifier::{create_play_info_embed, update_play_info_embed}
-    }
+    },
+    connection_handler::*,
 };
 
 struct TrackEndNotifier;
@@ -56,7 +56,7 @@ impl VoiceEventHandler for TrackEndNotifier {
         if let EventContext::Track(track_list) = ctx {
             println!("Song has ended: {:?}", track_list);
         }
-        None
+        Some(Event::Track(TrackEvent::End))
     }
 }
 
@@ -76,8 +76,20 @@ impl CommandInterface for Play {
     ) -> CommandReturn {
 
         let gid = command.guild_id.unwrap();
+        let guild = ctx.cache.guild(gid).unwrap();
         let voice_manager = songbird::get(ctx).await.expect("Songbird Voice client placed in at initialisation.");
-        let queue = ctx.data.read().await.get::<MusicQueue>().unwrap().clone();
+
+        match establish_connection(&command.user.id, &guild, &voice_manager).await {
+            Ok(success) => match success {
+                ConnectionSuccessCode::AlreadyConnected => return CommandReturn::String("이미 음성채널에 접속되어 있습니다.".to_owned()),
+                ConnectionSuccessCode::NewConnection => CommandReturn::String("음성채널에 접속했습니다.".to_owned())
+            },
+            Err(why) => match why {
+                ConnectionErrorCode::JoinVoiceChannelFirst => return CommandReturn::String("음성채널에 먼저 접속해주세요.".to_owned()),
+                ConnectionErrorCode::AlreadyInUse => return CommandReturn::String("다른 채널에서 사용중입니다.".to_owned()),
+                _ => return CommandReturn::String("연결에 실패했습니다.".to_owned()),
+            },
+        };
 
         let mut play_time: u64 = 0;
         let mut start_time: u64 = 0;
@@ -93,14 +105,9 @@ impl CommandInterface for Play {
                     Some(start_time) => start_time.abs() as u64,
                     None => 0,
                 };
-
                 Some(url)
             },
-            None => if queue.read().await.len() == 0 {
-                return CommandReturn::String("큐가 비어있습니다.\n큐에 곡을 넣거나 url을 입력해주세요.".to_string())
-            } else {
-                None
-            },
+            None => return CommandReturn::String("큐가 비어있습니다.\n큐에 곡을 넣거나 url을 입력해주세요.".to_string())
         };
 
         let http = ctx.http.clone();
@@ -122,56 +129,36 @@ impl CommandInterface for Play {
             };
 
             let mut handler = handler_lock.lock().await;
-            let mut audio_handle = handler.play_source(src);
+            let mut audio_handle = handler.enqueue_source(src);
             audio_handle.add_event(Event::Track(TrackEvent::End), TrackEndNotifier).unwrap();
             let mut last_edit_time = audio_handle.get_info().await.unwrap().position;
-            let mut current_time = 0;
 
-            let mut embed = create_play_info_embed(title.as_ref(), current_time, duration);
+            let mut embed = create_play_info_embed(title.as_ref(), 0, duration);
             let mut msg = current_channel.send_message(&http, |m| {
                 m.embed(|e| {
                     e.clone_from(&embed);
                     e
                 })
             }).await.unwrap();
-            loop {
-                
-                if audio_handle.get_info().await.unwrap().position > Duration::from_secs(1) {
-                    current_time += 1;
-                    let now = audio_handle.get_info().await.unwrap().position.as_secs();
-                    embed = update_play_info_embed(embed, title.as_ref(), now, duration);
-                    msg.edit(&http, |m| {
-                        m.embed(|e| {
-                            e.clone_from(&embed);
-                            e
-                        })
-                    }).await.unwrap();
-                    last_edit_time = audio_handle.get_info().await.unwrap().position;
-                }
-                let status = audio_handle.get_info().await.unwrap().playing;
-                if status == PlayMode::End || status == PlayMode::Stop {
-                    break;
-                }
-            }
+
+            // while let Ok(playing_info) = audio_handle.get_info().await {
+            //     let current_time = playing_info.position;
+            //     if current_time - last_edit_time >= Duration::from_secs(1) {
+            //         embed = update_play_info_embed(embed, title.as_ref(), current_time.as_secs(), duration);
+            //         msg.edit(&http, |m| {
+            //             m.embed(|e| {
+            //                 e.clone_from(&embed);
+            //                 e
+            //             })
+            //         }).await.unwrap();
+            //         last_edit_time = current_time;
+            //     }
+            // }
 
         } else {
-            tokio::spawn(async move {
-                let mut handler = handler_lock.lock().await;
-                while let Some(song_url) = queue.write().await.pop_front() {
-                    let src = match ytdl_optioned(song_url, 0, 0).await {
-                        Ok(src) => src,
-                        Err(why) => {
-                            println!("Err starting source: {:?}", why);
-                            continue;
-                        }
-                    };
-                    let (mut audio, audio_handle) = create_player(src.into());
-                    audio_handle.add_event(Event::Track(TrackEvent::End), TrackEndNotifier).unwrap();
-                    handler.play(audio);
-                }
-            }).await.unwrap();
+
         }
-        CommandReturn::String("재생 종료".to_owned())
+        CommandReturn::String("재생종료".to_owned())
     }
 
     fn register<'a: 'b, 'b>(

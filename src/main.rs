@@ -1,4 +1,5 @@
-use std::{env, vec};
+use std::collections::HashMap;
+use std::{env, vec, fs};
 use std::{time::Duration, sync::Arc, collections::VecDeque};
 
 use rusqlite::{Result, params};
@@ -16,8 +17,13 @@ use serenity::model::{
     prelude::{Message, Reaction, ReactionType, Ready},
     application::component::{SelectMenu, ComponentType, SelectMenuOption},
     application::interaction::InteractionResponseType,
+    id::GuildId,
 };
+
+use songbird::input::Input;
+
 use env_logger::Env;
+use ctrlc;
 
 mod command_handler;
 mod event_handler;
@@ -25,14 +31,16 @@ mod database_handler;
 mod connection_handler;
 mod utils;
 
+use crate::utils::guild_queue::GuildQueue;
+
 struct DBContainer;
 impl TypeMapKey for DBContainer {
     type Value = Connection;
 }
 
-struct MusicQueue;
-impl TypeMapKey for MusicQueue {
-    type Value = Arc<RwLock<VecDeque<String>>>;
+struct GuildQueueContainer;
+impl TypeMapKey for GuildQueueContainer {
+    type Value = Arc<RwLock<HashMap<GuildId, GuildQueue>>>;
 }
 
 #[tokio::main]
@@ -41,6 +49,10 @@ async fn main() -> Result<()> {
         .filter_or("RUST_LOG", "error");
 
     env_logger::init_from_env(log_env);
+    // ctrlc::set_handler(move || {
+    //     clean_tmp();
+    //     std::process::exit(0);
+    // }).expect("핸들러를 등록하지 못했습니다.");
 
     let conn = Connection::open("music.db").await?;
     database_handler::initialize(&conn).await?;
@@ -69,8 +81,7 @@ async fn main() -> Result<()> {
     {
         let mut data = client.data.write().await;
         data.insert::<DBContainer>(conn);
-        let mut queue = VecDeque::new();
-        data.insert::<MusicQueue>(Arc::new(RwLock::new(queue)));
+        data.insert::<GuildQueueContainer>(Arc::new(RwLock::new(HashMap::default())));
     }
     
     if let Err(why) = client.start().await {
