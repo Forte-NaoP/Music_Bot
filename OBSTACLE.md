@@ -3,7 +3,13 @@
 >     1. url로 부터 음악을 재생하고 싶음
 >           - ytdl 사용
 >     2. 큐에 넣고 재생하고 싶음
->           - `Arc<RwLock<VecDeque>>` 사용
+>           - ~~`Arc<RwLock<VecDeque>>` 사용~~
+>           - bot의 client에 저장되는 데이터 타입 `GuildQueue` 구조 고민중
+>               - 여러 서버에서 접근하는 경우를 생각하면 client에 저장될 `GuildQueueContainer`는 `Arc<RwLock<HashMap<GuildId, GuildQueue>>>` 이어야 할 듯.
+>               - 그러면 `GuildQueue` 내부 구조는?
+>                   - 생각하는 시나리오는 재생관련 명령어 실행하면 `GuildQueue` 내부의 url vector에서 url pop해서<br>`Songbird::input::Input` 으로 변환 후 `Call::enqueue_source`하는 건데,<br>url_vector에서 enqueue_source까지의 과정을 여러개를 동시에 하고 싶음.<br>아니면 적어도 노래 재생되는 동안 하나씩이라도 넣어서 최대한 노래 중간중간 안 끊기게 하고 싶음.
+>                   - 다른 의견으로는 아예 백엔드 서버가 있음.
+>                   - 우선은 하나씩 하게 하는걸로
 >     3. 곡의 시작시간이나 재생시간을 조정하고 싶음
 >           - sorgbird 에서는 지원 안하므로 songbird ytdl을 적당히 수정할 계획
 >               - 기존 ytdl은 재생되기 전까지 yt-dlp와 ffmpeg 프로세스를 잡고 있는 듯함. (아닐수도 있음)
