@@ -56,7 +56,7 @@ impl VoiceEventHandler for TrackEndNotifier {
         if let EventContext::Track(track_list) = ctx {
             println!("Song has ended: {:?}", track_list);
         }
-        Some(Event::Track(TrackEvent::End))
+        None
     }
 }
 
@@ -90,73 +90,72 @@ impl CommandInterface for Play {
                 _ => return CommandReturn::String("연결에 실패했습니다.".to_owned()),
             },
         };
+        
+        let url = Option::<String>::from(DataWrapper::from(options, 0)).unwrap();
 
-        let mut play_time: u64 = 0;
-        let mut start_time: u64 = 0;
-        
-        let url = match Option::<String>::from(DataWrapper::from(options, 0)) {
-            Some(url) => {
-                play_time = match Option::<i64>::from(DataWrapper::from(options, 1)) {
-                    Some(play_time) => play_time.abs() as u64,
-                    None => 0,
-                };
-        
-                start_time = match Option::<i64>::from(DataWrapper::from(options, 2)) {
-                    Some(start_time) => start_time.abs() as u64,
-                    None => 0,
-                };
-                Some(url)
-            },
-            None => return CommandReturn::String("큐가 비어있습니다.\n큐에 곡을 넣거나 url을 입력해주세요.".to_string())
+        let play_time = match Option::<i64>::from(DataWrapper::from(options, 1)) {
+            Some(play_time) => play_time.abs() as u64,
+            None => 0,
         };
 
-        let http = ctx.http.clone();
-        let current_channel = command.channel_id.clone();
-        let handler_lock = voice_manager.get(gid).unwrap();
+        let start_time = match Option::<i64>::from(DataWrapper::from(options, 2)) {
+            Some(start_time) => start_time.abs() as u64,
+            None => 0,
+        };
 
-        if let Some(url) = url {
-            let url = match url_checker(url.as_str()) {
-                Some(url) => url,
-                None => return CommandReturn::String("url이 잘못되었습니다.".to_string()),
-            };
-            let src = ytdl_optioned(url, start_time, play_time).await.unwrap();
-            let metadata = src.metadata.clone();
-            let title = metadata.title.unwrap();
-            let duration = if play_time != 0 {
-                play_time
-            } else {
-                metadata.duration.unwrap().as_secs()
-            };
+        let url = match url_checker(url.as_str()) {
+            Some(url) => url,
+            None => return CommandReturn::String("url이 잘못되었습니다.".to_string()),
+        };
 
-            let mut handler = handler_lock.lock().await;
-            let mut audio_handle = handler.enqueue_source(src);
-            audio_handle.add_event(Event::Track(TrackEvent::End), TrackEndNotifier).unwrap();
-            let mut last_edit_time = audio_handle.get_info().await.unwrap().position;
-
-            let mut embed = create_play_info_embed(title.as_ref(), 0, duration);
-            let mut msg = current_channel.send_message(&http, |m| {
-                m.embed(|e| {
-                    e.clone_from(&embed);
-                    e
-                })
-            }).await.unwrap();
-
-            // while let Ok(playing_info) = audio_handle.get_info().await {
-            //     let current_time = playing_info.position;
-            //     if current_time - last_edit_time >= Duration::from_secs(1) {
-            //         embed = update_play_info_embed(embed, title.as_ref(), current_time.as_secs(), duration);
-            //         msg.edit(&http, |m| {
-            //             m.embed(|e| {
-            //                 e.clone_from(&embed);
-            //                 e
-            //             })
-            //         }).await.unwrap();
-            //         last_edit_time = current_time;
-            //     }
-            // }
-
+        let src = ytdl_optioned(url, start_time, play_time).await.unwrap();
+        let metadata = src.metadata.clone();
+        let title = metadata.title.unwrap();
+        let duration = if play_time != 0 {
+            play_time
         } else {
+            metadata.duration.unwrap().as_secs()
+        };
 
+        let handler_lock = voice_manager.get(gid).unwrap();
+        let mut handler = handler_lock.lock().await;
+
+        let audio_handle = handler.enqueue_source(src);
+        audio_handle.add_event(Event::Track(TrackEvent::End), TrackEndNotifier).unwrap();
+
+        let mut current_time = Duration::from_secs(0);
+        let mut last_edit_time = audio_handle.get_info().await.unwrap().position;
+
+        let mut embed = create_play_info_embed(title.as_ref(), 0, duration);
+        let mut msg = command.channel_id.send_message(&ctx.http, |m| {
+            m.embed(|e| {
+                e.clone_from(&embed);
+                e
+            })
+        }).await.unwrap();
+
+        while let Ok(playing_info) = audio_handle.get_info().await {
+            current_time = playing_info.position;
+            if current_time - last_edit_time >= Duration::from_millis(900) {
+                embed = update_play_info_embed(embed, title.as_ref(), current_time.as_secs()+1, duration);
+                msg.edit(&ctx.http, |m| {
+                    m.embed(|e| {
+                        e.clone_from(&embed);
+                        e
+                    })
+                }).await.unwrap();
+                last_edit_time = current_time;
+            }
+            if current_time >= Duration::from_secs(duration) {
+                embed = update_play_info_embed(embed, title.as_ref(), duration, duration);
+                msg.edit(&ctx.http, |m| {
+                    m.embed(|e| {
+                        e.clone_from(&embed);
+                        e
+                    })
+                }).await.unwrap();
+                break;
+            }
         }
         CommandReturn::String("재생종료".to_owned())
     }
@@ -173,7 +172,7 @@ impl CommandInterface for Play {
                     .name("url")
                     .description("재생하고 싶은 노래 url")
                     .kind(CommandOptionType::String)
-                    .required(false)
+                    .required(true)
             })
             .create_option(|option| {
                 option
