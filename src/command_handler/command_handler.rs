@@ -69,6 +69,8 @@ lazy_static! {
             ("재생", commands::play::command()),
             ("곡추가", commands::add_song::command()),
             ("큐잉", commands::insert_queue::command()),
+            ("큐재생", commands::play_queue::command()),
+            ("큐확인", commands::check_queue::command()),
         ])
     };
 }
@@ -113,7 +115,7 @@ pub async fn execute_command(ctx: &Context, command: ApplicationCommandInteracti
                 error!("{:#?}", why);
             }
         }
-        _ => ()
+        _ => command.delete_original_interaction_response(&ctx.http).await.unwrap(),
     }
 
 }

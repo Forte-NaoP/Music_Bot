@@ -5,3 +5,5 @@ pub mod disconnect;
 pub mod play;
 pub mod add_song;
 pub mod insert_queue;
+pub mod play_queue;
+pub mod check_queue;
