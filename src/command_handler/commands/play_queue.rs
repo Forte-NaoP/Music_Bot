@@ -45,7 +45,7 @@ use crate::{
         url_checker::{url_checker},
         audio_module::{
             youtube_dl::ytdl_optioned,
-            track_event_handler::TrackEndNotifier,
+            track_event_handler::{TrackEndNotifier, TrackQueuingNotifier},
         },
         play_info_notifier::{create_play_info_embed, update_play_info_embed}, guild_queue::GuildQueue
     },
@@ -104,35 +104,25 @@ impl CommandInterface for PlayQueue {
             },
             None => match url {
                 Some(url) => {
-                    let src = ytdl_optioned(url, 10, 10).await.unwrap();
+                    let src = ytdl_optioned(url, 10, 20).await.unwrap();
                     let handler_lock = voice_manager.get(gid).unwrap();
                     let mut handler = handler_lock.lock().await;
             
                     let data = ctx.data.read().await;
                     let data = data.get::<GuildQueueContainer>().unwrap();
-                    let queue = data.get(&gid).unwrap();
+                    let queue_lock = data.get(&gid).unwrap();
                     {
-                        let mut queue = queue.write().await;
+                        let mut queue = queue_lock.write().await;
                         let audio_handle = handler.enqueue_source(src);
-                        audio_handle.add_event(Event::Track(TrackEvent::End), TrackEndNotifier).unwrap();
-                        queue.now_playing = Some(audio_handle);
-                    }
-                    drop(handler);
-
-                    let task_queue = queue.clone();
-                    let handler_lock_clone = handler_lock.clone();
-                    tokio::task::spawn(async move {
-                        {
-                            let mut queue = task_queue.write().await;
-                            let mut handler = handler_lock_clone.lock().await;
-                            while queue.url_queue.len() > 0 {
-                                let url = queue.url_queue.pop_front().unwrap();
-                                let src = ytdl_optioned(url, 10 ,10).await.unwrap();
-                                let audio_handle = handler.enqueue_source(src);
-                                audio_handle.add_event(Event::Track(TrackEvent::End), TrackEndNotifier).unwrap();
+                        handler.add_global_event(Event::Track(TrackEvent::End), 
+                            TrackQueuingNotifier {
+                                http: ctx.http.clone(),
+                                guild_queue: queue_lock.clone(),
+                                voice_manager: handler_lock.clone(),
                             }
-                        }
-                    });
+                        );
+                        queue.now_playing = Some(audio_handle);
+                    }                    
                 },
                 None => return CommandReturn::String("재생할 곡이 없습니다.".to_owned()),
             },
