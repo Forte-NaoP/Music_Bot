@@ -33,7 +33,7 @@ use crate::{
         command_data::*,
         command_return::CommandReturn,
     }, 
-    utils::{audio_module::youtube_dl::ytdl, guild_queue},
+    utils::{audio_module::youtube_dl::ytdl, guild_queue, url_checker::url_checker},
     GuildQueueContainer,
 };
 
@@ -53,7 +53,10 @@ impl CommandInterface for InsertQueue {
     ) -> CommandReturn {
 
         let url = match Option::<String>::from(DataWrapper::from(options, 0)) {
-            Some(url) => url,
+            Some(url) => match url_checker(url.as_str()) {
+                Some(url) => url,
+                None => return CommandReturn::String("url이 잘못되었습니다.".to_string()),
+            },
             None => return CommandReturn::String("url을 입력해주세요.".to_string()),
         };
 
