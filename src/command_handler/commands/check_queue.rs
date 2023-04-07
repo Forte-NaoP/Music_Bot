@@ -67,7 +67,7 @@ impl CommandInterface for CheckQueue {
                     }
                     let url_list = urls.join("\n");
                     let mut embed = CreateEmbed::default();
-                    embed.title("현재 재생중인 곡")
+                    embed.title("현재 재생 대기 중인 곡")
                         .description(format!("{}", url_list));
                     command.channel_id.send_message(&ctx.http, |m| {
                         m.embed(|e| {
