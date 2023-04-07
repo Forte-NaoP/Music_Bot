@@ -42,23 +42,14 @@ use crate::{
     },
     utils::{
         url_checker::{url_checker},
-        audio_module::youtube_dl::{self, ytdl_optioned},
+        audio_module::{
+            youtube_dl::ytdl_optioned,
+            track_event_handler::TrackEndNotifier,
+        },
         play_info_notifier::{create_play_info_embed, update_play_info_embed}
     },
     connection_handler::*,
 };
-
-struct TrackEndNotifier;
-
-#[async_trait]
-impl VoiceEventHandler for TrackEndNotifier {
-    async fn act(&self, ctx: &EventContext<'_>) -> Option<Event> {
-        if let EventContext::Track(track_list) = ctx {
-            println!("Song has ended: {:?}", track_list);
-        }
-        None
-    }
-}
 
 struct Play;
 
