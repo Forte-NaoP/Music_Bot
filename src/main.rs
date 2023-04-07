@@ -1,10 +1,11 @@
 use std::collections::HashMap;
-use std::{env, vec, fs};
-use std::{time::Duration, sync::Arc, collections::VecDeque};
+use std::{env, vec, fs, sync::Arc};
+use std::{time::Duration, collections::VecDeque};
 
 use rusqlite::{Result, params};
 use songbird::SerenityInit;
 use tokio_rusqlite::Connection as Connection;
+use tokio::sync::{RwLock};
 
 use serenity::async_trait;
 use serenity::client::{Client, Context, EventHandler};
@@ -40,7 +41,7 @@ impl TypeMapKey for DBContainer {
 
 struct GuildQueueContainer;
 impl TypeMapKey for GuildQueueContainer {
-    type Value = Arc<RwLock<HashMap<GuildId, GuildQueue>>>;
+    type Value = HashMap<GuildId, Arc<RwLock<GuildQueue>>>;
 }
 
 #[tokio::main]
@@ -49,10 +50,6 @@ async fn main() -> Result<()> {
         .filter_or("RUST_LOG", "error");
 
     env_logger::init_from_env(log_env);
-    // ctrlc::set_handler(move || {
-    //     clean_tmp();
-    //     std::process::exit(0);
-    // }).expect("핸들러를 등록하지 못했습니다.");
 
     let conn = Connection::open("music.db").await?;
     database_handler::initialize(&conn).await?;
@@ -81,7 +78,7 @@ async fn main() -> Result<()> {
     {
         let mut data = client.data.write().await;
         data.insert::<DBContainer>(conn);
-        data.insert::<GuildQueueContainer>(Arc::new(RwLock::new(HashMap::default())));
+        data.insert::<GuildQueueContainer>(HashMap::default());
     }
     
     if let Err(why) = client.start().await {

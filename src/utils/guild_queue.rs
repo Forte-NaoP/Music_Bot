@@ -8,9 +8,10 @@ use songbird::input::Input;
 use songbird::tracks::TrackHandle;
 use songbird::input::Metadata;
 
-use std::collections::VecDeque;
 use std::sync::Arc;
-use std::sync::RwLock;
+use std::cell::RefCell;
+use std::collections::VecDeque;
+use tokio::sync::RwLock;
 use tokio::sync::Mutex;
 
 use crate::GuildQueueContainer;
@@ -43,10 +44,9 @@ impl GuildQueue {
 }
 
 pub async fn initialize(ctx: &Context) {
-    let _guild_queue = ctx.data.read().await;
-    let guild_queue = _guild_queue.get::<GuildQueueContainer>().unwrap();
-    let mut guild_queue_lock = guild_queue.write().await;
+    let mut guild_queue = ctx.data.write().await;
+    let guild_queue = guild_queue.get_mut::<GuildQueueContainer>().unwrap();
     for gid in ctx.cache.guilds().iter() {
-        guild_queue_lock.entry(gid.clone()).or_insert(GuildQueue::new(gid.clone()));
+        guild_queue.entry(gid.clone()).or_insert(Arc::new(RwLock::new(GuildQueue::new(gid.clone()))));
     }
 }
