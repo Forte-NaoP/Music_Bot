@@ -66,21 +66,18 @@ impl CommandInterface for Play {
         options: &[CommandDataOption]
     ) -> CommandReturn {
 
-        let gid = command.guild_id.unwrap();
-        let guild = ctx.cache.guild(gid).unwrap();
-        let voice_manager = songbird::get(ctx).await.expect("Songbird Voice client placed in at initialisation.");
-
-        match establish_connection(&command.user.id, &guild, &voice_manager).await {
-            Ok(success) => match success {
-                ConnectionSuccessCode::AlreadyConnected => return CommandReturn::String("이미 음성채널에 접속되어 있습니다.".to_owned()),
-                ConnectionSuccessCode::NewConnection => CommandReturn::String("음성채널에 접속했습니다.".to_owned())
-            },
+        match establish_connection(ctx, command).await {
+            Ok(_) => (),
             Err(why) => match why {
                 ConnectionErrorCode::JoinVoiceChannelFirst => return CommandReturn::String("음성채널에 먼저 접속해주세요.".to_owned()),
                 ConnectionErrorCode::AlreadyInUse => return CommandReturn::String("다른 채널에서 사용중입니다.".to_owned()),
                 _ => return CommandReturn::String("연결에 실패했습니다.".to_owned()),
             },
         };
+
+        let gid = command.guild_id.unwrap();
+        let guild = ctx.cache.guild(gid).unwrap();
+        let voice_manager = songbird::get(ctx).await.expect("Songbird Voice client placed in at initialisation.");    
         
         let url = Option::<String>::from(DataWrapper::from(options, 0)).unwrap();
 
@@ -112,7 +109,6 @@ impl CommandInterface for Play {
         let mut handler = handler_lock.lock().await;
 
         let audio_handle = handler.enqueue_source(src);
-        audio_handle.add_event(Event::Track(TrackEvent::End), TrackEndNotifier).unwrap();
 
         let mut current_time = Duration::from_secs(0);
         let mut last_edit_time = audio_handle.get_info().await.unwrap().position;

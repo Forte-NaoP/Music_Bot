@@ -42,12 +42,7 @@ impl CommandInterface for Disconnect {
         options: &[CommandDataOption]
     ) -> CommandReturn {
 
-        let gid = command.guild_id.unwrap();
-        let guild = ctx.cache.guild(gid).unwrap();
-
-        let voice_manager = songbird::get(ctx).await.expect("Songbird Voice client placed in at initialisation.");
-
-        terminate_connection(&guild, &voice_manager).await;
+        terminate_connection(ctx, &command).await;
         CommandReturn::String("접속을 종료합니다.".to_owned())
     }
 

@@ -67,21 +67,18 @@ impl CommandInterface for PlayQueue {
         options: &[CommandDataOption]
     ) -> CommandReturn {
 
-        let gid = command.guild_id.unwrap();
-        let guild = ctx.cache.guild(gid).unwrap();
-        let voice_manager = songbird::get(ctx).await.expect("Songbird Voice client placed in at initialisation.");
-
-        match establish_connection(&command.user.id, &guild, &voice_manager).await {
-            Ok(success) => match success {
-                ConnectionSuccessCode::AlreadyConnected => return CommandReturn::String("이미 음성채널에 접속되어 있습니다.".to_owned()),
-                ConnectionSuccessCode::NewConnection => CommandReturn::String("음성채널에 접속했습니다.".to_owned())
-            },
+        match establish_connection(ctx, command).await {
+            Ok(_) => (),
             Err(why) => match why {
                 ConnectionErrorCode::JoinVoiceChannelFirst => return CommandReturn::String("음성채널에 먼저 접속해주세요.".to_owned()),
                 ConnectionErrorCode::AlreadyInUse => return CommandReturn::String("다른 채널에서 사용중입니다.".to_owned()),
                 _ => return CommandReturn::String("연결에 실패했습니다.".to_owned()),
             },
         };
+        
+        let gid = command.guild_id.unwrap();
+        let guild = ctx.cache.guild(gid).unwrap();
+        let voice_manager = songbird::get(ctx).await.expect("Songbird Voice client placed in at initialisation.");
         
         let mut url: Option<String> = None;
         let mut now_plyaing: Option<TrackHandle> = None;
@@ -104,7 +101,7 @@ impl CommandInterface for PlayQueue {
             },
             None => match url {
                 Some(url) => {
-                    let src = ytdl_optioned(url, 10, 20).await.unwrap();
+                    let src = ytdl_optioned(url, 10, 30).await.unwrap();
                     let handler_lock = voice_manager.get(gid).unwrap();
                     let mut handler = handler_lock.lock().await;
             
