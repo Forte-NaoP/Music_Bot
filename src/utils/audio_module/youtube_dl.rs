@@ -25,24 +25,7 @@ use songbird::input::{
     Metadata, ffmpeg_optioned,
 };
 
-use crate::utils::url_checker::YOUTUBE_PREFIX;
-
-// group 5 is the video id;
-
 const YOUTUBE_DL_COMMAND: &str = "yt-dlp";
-
-const YTDL_PRE_ARGS: [&str; 10] = [
-    "-j",
-    "--no-simulate",
-    "-f",
-    "webm[abr>0]/bestaudio/best",
-    "-R",
-    "infinite",
-    "--no-playlist",
-    "--no-overwrites",
-    "--ignore-config",
-    "--no-warnings",
-];
 
 const YTDL_COMMON_ARGS: [&str; 8] = [
     "-j",
