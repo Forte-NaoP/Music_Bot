@@ -71,6 +71,7 @@ lazy_static! {
             ("큐잉", commands::insert_queue::command()),
             ("큐재생", commands::play_queue::command()),
             ("큐확인", commands::check_queue::command()),
+            ("스탯", commands::stat::command()),
         ])
     };
 }
