@@ -3,28 +3,33 @@ use std::{env, vec, fs, sync::Arc};
 use std::{time::Duration, collections::VecDeque};
 
 use rusqlite::{Result, params};
-use songbird::SerenityInit;
+use songbird::{SerenityInit, Songbird};
 use tokio_rusqlite::Connection as Connection;
-use tokio::sync::{RwLock};
-
-use serenity::async_trait;
-use serenity::client::{Client, Context, EventHandler};
-use serenity::prelude::*;
-use serenity::framework::standard::{
-    macros::{command, group},
-    CommandResult, StandardFramework, CommandError, Args
-};
-use serenity::model::{
-    prelude::{Message, Reaction, ReactionType, Ready},
-    application::component::{SelectMenu, ComponentType, SelectMenuOption},
-    application::interaction::InteractionResponseType,
-    id::GuildId,
+use tokio::{
+    sync::RwLock,
+    signal::ctrl_c,
 };
 
-use songbird::input::Input;
+use serenity::{
+    async_trait,
+    FutureExt,
+    client::{Client, Context, EventHandler},
+    prelude::*,
+    framework::standard::{
+        macros::{command, group},
+        CommandResult, StandardFramework, CommandError, Args
+    },
+    model::{
+        prelude::{Message, Reaction, ReactionType, Ready},
+        application::component::{SelectMenu, ComponentType, SelectMenuOption},
+        application::interaction::InteractionResponseType,
+        id::GuildId,
+    },
+};
+
+use songbird::SongbirdKey;
 
 use env_logger::Env;
-use ctrlc;
 
 mod command_handler;
 mod event_handler;
@@ -81,9 +86,25 @@ async fn main() -> Result<()> {
         data.insert::<GuildQueueContainer>(HashMap::default());
     }
     
-    if let Err(why) = client.start().await {
-        println!("An error occurred while running the client: {:?}", why);
-    }
+    let shard_manager = client.shard_manager.clone();
+    let client_future = client.start_autosharded().fuse();
+
+    tokio::pin!(client_future);
+
+    let ctrl_c = ctrl_c().fuse();
+    tokio::pin!(ctrl_c);
+
+    tokio::select! {
+        client_result = client_future => {
+            if let Err(why) = client_result {
+                println!("An error occurred while running the client: {:?}", why);
+            }
+        },
+        _ = ctrl_c => {
+            println!("Ctrl-C received, shutting down");
+            shard_manager.lock().await.shutdown_all().await;
+        }
+    };
 
     Ok(())
 }
