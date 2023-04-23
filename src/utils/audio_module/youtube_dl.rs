@@ -1,8 +1,10 @@
 use serde_json::Value;
 use std::{
-    io::{BufRead, BufReader, Read},
-    process::{Stdio, Command}, ptr::null,
+    fs::File,
+    io::{BufRead, BufReader, Read, Cursor},
+    process::{Stdio, Command},
     path::Path,
+    mem,
 };
 use tokio::{
     process::{
@@ -10,25 +12,28 @@ use tokio::{
     },
     task,
     io::{
-        BufReader as TokioBufReader,
-        AsyncBufReadExt,
-        AsyncRead,
-        AsyncWrite,
-    }
+        AsyncWriteExt,
+    },
+    fs::File as TokioFile,
 };
 use songbird::input::{
     Reader,
     error::{Error, Result},
+    codec::OpusDecoderState, error::DcaError,
     Codec,
     Container,
     Input,
-    Metadata, ffmpeg_optioned,
+    Metadata as SongbirdMetadata,
 };
+use ogg::PacketReader;
+
+use crate::utils::audio_module::metadata::Metadata;
+use crate::utils::audio_module::dca;
 
 const YOUTUBE_DL_COMMAND: &str = "yt-dlp";
-
-const YTDL_COMMON_ARGS: [&str; 8] = [
+const YTDL_COMMON_ARGS: [&str; 11] = [
     "-j",
+    "--no-simulate",
     "-f",
     "webm[abr>0]/bestaudio/best",
     "-R",
@@ -36,18 +41,22 @@ const YTDL_COMMON_ARGS: [&str; 8] = [
     "--no-playlist",
     "--ignore-config",
     "--no-warnings",
+    "-o",
+    "-"
 ];
 
-const FFMPEG_ARGS: [&str; 9] = [
-    "-f",
-    "s16le",
+const FFMPEG_DL_COMMAND: &str = "ffmpeg";
+const FFMPEG_ARGS: [&str; 10] = [
     "-ac",
     "2",
     "-ar",
     "48000",
+    "-ab",
+    "64000",
     "-acodec",
-    "pcm_f32le",
-    "-",
+    "libopus",
+    "-f",
+    "opus"
 ];
 
 const TMP_FORLDER: &str = "./tmp/";
@@ -58,86 +67,150 @@ pub async fn ytdl(url: impl AsRef<str>) -> Result<Input> {
 
 pub async fn ytdl_optioned(url: impl AsRef<str>, mut start: u64, mut duration: u64) -> Result<Input> {
 
-    let output_path = format!("{}{}", TMP_FORLDER, url.as_ref());
-    let output = Path::new(&output_path);
-    let value = if output.exists() && output.is_file() {
-        // 파일이 있으면 메타데이터만 다운로드
-        _ytdl_optioned(&["--simulate", url.as_ref()]).await
+    let audio_path = format!("{}{}.ogg", TMP_FORLDER, url.as_ref());
+    let json_path = format!("{}{}.json", TMP_FORLDER, url.as_ref());
+
+    let (audio, json) = (Path::new(&audio_path), Path::new(&json_path));
+    
+    let value = if audio.exists() && json.exists() {
+        // 파일이 있으면 파일에서 메타데이터 읽어옴
+        _metadata_from_file(json_path.to_owned()).await.unwrap()
     } else {
-        // 파일이 없으면 다운로드
-        _ytdl_optioned(&["--no-simulate", url.as_ref(), "-o", output_path.as_ref()]).await
+        // 파일이 없으면 ytdl로 다운받고 메타데이터 읽어옴
+        _metadata_from_ytdl(url.as_ref().to_owned(), audio_path.clone(), json_path).await.unwrap()
     };
 
-    let metadata = Metadata::from_ytdl_output(value?);
+    let metadata = value.clone();
+    let songbird_metadata = into_songbird_metadata(value);
 
     if duration == 0 {
-        duration = metadata.duration.unwrap().as_secs();
+        duration = songbird_metadata.duration.unwrap().as_secs();
     }
-    if start >= metadata.duration.unwrap().as_secs() {
+    if start >= songbird_metadata.duration.unwrap().as_secs() {
         start = 0;
     }
-    if start + duration > metadata.duration.unwrap().as_secs() {
-        duration = metadata.duration.unwrap().as_secs() - start;
+    if start + duration > songbird_metadata.duration.unwrap().as_secs() {
+        duration = songbird_metadata.duration.unwrap().as_secs() - start;
     }
     
-    let mut ffmpeg = Command::new("ffmpeg")
-        .args(&["-ss", start.to_string().as_ref()])
-        .args(&["-i", output_path.as_ref()])
-        .args(&["-t", duration.to_string().as_ref()])
+    let mut ffmpeg = Command::new(FFMPEG_DL_COMMAND)
+        .args(&["-ss", start.to_string().as_str()])
+        .args(&["-i", audio_path.as_str()])
+        .args(&["-t", duration.to_string().as_str()])
         .args(&FFMPEG_ARGS)
-        .stderr(Stdio::null())
-        .stdin(Stdio::null())
+        .arg("pipe:1")
         .stdout(Stdio::piped())
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
         .spawn()
         .unwrap();
 
-    // songbird 내부적으로 알아서 ytdl과 ffmpeg를 wait하는지 모르겠지만
-    // 혹시라도 defunct 상태로 있는게 싫어서 그냥 직접 wait 하고 Reader::from_memory 사용함
     let mut stdout = ffmpeg.stdout.take().unwrap();
     let mut o_vec = vec![];
     stdout.read_to_end(&mut o_vec).unwrap();
     ffmpeg.wait().unwrap();
+    
+    let mut cursor = Cursor::new(o_vec);
+    let mut dca_input = dca::DcaWrapper::new(metadata);
+
+    let mut reader = PacketReader::new(cursor);
+    let mut skip = 2;
+    while let Ok(packet) = reader.read_packet() {
+        if let None = packet {
+            break;
+        } else if skip > 0 {
+            skip -= 1;
+            continue;
+        }
+        let packet = packet.unwrap();
+
+        dca_input.write_audio_data(packet.data.as_slice());
+    }
 
     Ok(Input::new(
         true,
-        Reader::from_memory(o_vec),
-        Codec::FloatPcm,
-        Container::Raw,
-        Some(metadata),
+        Reader::from_memory(dca_input.raw()),
+        Codec::Opus(OpusDecoderState::new().map_err(DcaError::Opus)?),
+        Container::Dca {
+            first_frame: 0 //(header_size as usize) + mem::size_of::<i32>() + signature.len(),
+        },
+        Some(songbird_metadata),
     ))
 
 }
 
-async fn _ytdl_optioned(args: &[&str]) -> Result<Value> {
+async fn _metadata_from_ytdl(url: String, audio_path: String, json_path: String) -> Result<Metadata> {
     let mut youtube_dl = Command::new(YOUTUBE_DL_COMMAND)
         .args(&YTDL_COMMON_ARGS)
-        .args(args)
+        .arg(url)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
         .spawn()?;
 
-    let stderr = youtube_dl.stdout.take();
-    let value = task::spawn_blocking(move || {
-        let mut s = stderr.unwrap();
-        let out: Result<Value> = {
-            let mut o_vec = vec![];
-            let mut serde_read = BufReader::new(s.by_ref());
-            if let Ok(len) = serde_read.read_until(0xA, &mut o_vec) {
-                serde_json::from_slice(&o_vec[..len]).map_err(|err| Error::Json {
-                    error: err,
-                    parsed_text: std::str::from_utf8(&o_vec).unwrap_or_default().to_string(),
-                })
-            } else {
-                Result::Err(Error::Metadata)
-            }
-        };
-        out
-    })
-    .await
-    .map_err(|_| Error::Metadata)?;
-    
-    //wait 안하면 파일이 저장되기 전에 ffmpeg가 실행되서 파일을 못 읽어들임
-    youtube_dl.wait().unwrap();
+    let ytdl_stdout = youtube_dl.stdout.take().unwrap();
+    let mut ytdl_stderr = youtube_dl.stderr.take().unwrap();
 
-    value
+    let mut ffmpeg = Command::new(FFMPEG_DL_COMMAND)
+        .args(&["-i", "pipe:0"])
+        .args(&FFMPEG_ARGS)
+        .arg(audio_path)
+        .stdin(ytdl_stdout)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()?;
+
+    let mut data = vec![];
+    let out_size = ytdl_stderr.read_to_end(&mut data);
+
+    let metadata: Result<Value> = if let Ok(_) = out_size {
+        serde_json::from_slice(&data).map_err(|err| Error::Json {
+            error: err,
+            parsed_text: std::str::from_utf8(&data).unwrap_or_default().to_string(),
+        })
+    } else {
+        Result::Err(Error::Metadata)
+    };
+    
+    let metadata = Metadata::from_ytdl_output(metadata.expect("ssibal"));
+    let metadata_clone = metadata.clone();
+
+    let handle = tokio::task::spawn(async move {
+        let mut json = TokioFile::create(json_path).await.unwrap();
+        let data = serde_json::to_string(&metadata_clone).unwrap();
+        json.write_all(data.as_bytes()).await.unwrap();
+        json.flush().await.unwrap();
+    });
+
+    youtube_dl.wait().unwrap();
+    ffmpeg.wait().unwrap();
+    handle.await.unwrap();
+
+    Ok(metadata)
+}
+
+async fn _metadata_from_file(url: String) -> Result<Metadata> {
+    let mut json = File::open(url).expect("_metadata_from_file open error");
+
+    let mut metadata_buf = vec![];
+    json.read_to_end(&mut metadata_buf).expect("json.read_to_end");
+    let metadata = serde_json::from_slice(&metadata_buf).unwrap();
+
+    Ok(metadata)
+}
+
+fn into_songbird_metadata(metadata: Metadata) -> SongbirdMetadata {
+    SongbirdMetadata {
+        track: metadata.track,
+        artist: metadata.artist,
+        date: metadata.date,
+        channels: metadata.channels,
+        channel: metadata.channel,
+        start_time: metadata.start_time,
+        duration: metadata.duration,
+        sample_rate: metadata.sample_rate,
+        source_url: metadata.source_url,
+        title: metadata.title,
+        thumbnail: metadata.thumbnail
+    }
 }
