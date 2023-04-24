@@ -5,7 +5,7 @@ use serde::{Serialize, Deserialize};
 use crate::utils::audio_module::metadata::Metadata;
 
 static DCA_MAGIC_BYTES: &'static [u8; 4] = b"DCA1";
-
+static HEADER_LENGTH_BYTES: i32 = 4;
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct DcaMetadata {
     pub(crate) dca: Dca,
@@ -63,21 +63,53 @@ pub(crate) struct Extra {}
 pub struct DcaWrapper {
     metadata: Metadata,
     raw: Vec<u8>,
+    header_size: i32,
+    offset: usize,
+    header_written: bool,
+    audio_data_written: bool,
 }
 
 impl DcaWrapper {
     pub fn new(metadata: Metadata) -> Self {
-        DcaWrapper { metadata, raw: vec![] }
+        DcaWrapper { 
+            metadata, 
+            raw: vec![],
+            header_size: 0,
+            offset: DCA_MAGIC_BYTES.len() + HEADER_LENGTH_BYTES as usize,
+            header_written: false, 
+            audio_data_written: false
+        }
     }
 
     pub fn raw(&self) -> Vec<u8> {
         self.raw.clone()
     }
 
+    pub fn dca_header(&self) -> Option<Vec<u8>> {
+        if self.header_written {
+            let mut header = vec![];
+            header.extend_from_slice(&self.raw[self.offset..self.header_size as usize + self.offset]);
+            Some(header)
+        } else {
+            None
+        }
+    }
+
+    pub fn dca_data(&self) -> Option<Vec<u8>> {
+        if self.audio_data_written {
+            let mut data = vec![];
+            data.extend_from_slice(&self.raw[self.offset + self.header_size as usize..]);
+            Some(data)
+        } else {
+            None
+        }
+    }
+
     pub fn write_audio_data(&mut self, audio_data: &[u8]) {
         let data_len = audio_data.len() as i16;
         self.raw.extend_from_slice(&data_len.to_le_bytes());
         self.raw.extend_from_slice(audio_data);
+        self.audio_data_written = true;
     }
 
     pub fn write_dca_header(&mut self) {
@@ -93,6 +125,8 @@ impl DcaWrapper {
         let dca_header_len = dca_header.as_bytes().len() as i32;
         self.raw.extend_from_slice(&dca_header_len.to_le_bytes());
         self.raw.extend_from_slice(dca_header.as_bytes());
+        self.header_written = true;
+        self.header_size = dca_header_len;
     }
 
     fn dca() -> Dca {
