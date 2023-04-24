@@ -1,18 +1,12 @@
 use serenity::{
     async_trait,
-    client::{Client, Context, EventHandler},
-    framework::standard::{
-        macros::{command, group},
-        CommandResult, StandardFramework, CommandError, Args
-    },
+    client::{Context, EventHandler},
     model::{
-        prelude::{Message, Reaction, ReactionType, Ready},
+        prelude::{Message, Ready},
         application::{
-            component::{SelectMenu, ComponentType, SelectMenuOption},
-            interaction::{Interaction, InteractionResponseType},
+            interaction::Interaction,
             command::Command,
         },
-        id::GuildId,
     },
 };
 
@@ -20,13 +14,10 @@ use crate::{
     command_handler::{
         command_handler::*,
         commands::*,
-        command_return::CommandReturn, self,
     },
-    utils::guild_queue::{*, self},
+    utils::guild_queue::{self},
+    GuildQueueContainer
 };
-
-use std::env;
-use log::{error, info, warn};
 
 pub struct DiscordEventHandler;
 
@@ -59,4 +50,29 @@ impl EventHandler for DiscordEventHandler {
             _ => {},
         };
     }
+
+    async fn message(&self, ctx: Context, message: Message) {
+        
+        if message.content.starts_with("/") {
+            return;
+        }
+        
+        let gid = message.guild_id.unwrap();
+
+        let data = ctx.data.read().await;
+        let data = data.get::<GuildQueueContainer>().unwrap();
+        let queue_lock = data.get(&gid).unwrap();
+
+        let queue = queue_lock.read().await;
+        if let Some(guild_chat_channel) = queue.chat_channel {
+            if message.channel_id == guild_chat_channel {
+                if let Some(track_handle) = queue.now_playing.clone() {
+                    let content = message.content.to_lowercase();
+                    if queue.skip_keyword.as_ref().unwrap().contains(&content) {
+                        track_handle.stop().unwrap();
+                    }
+                }
+            }
+        }
+    } 
 }

@@ -1,27 +1,11 @@
-use regex::Regex;
 use serenity::{
-    async_trait,
-    builder::CreateApplicationCommand,
     client::{Context},
-    framework::standard::{
-        CommandResult, Args,
-    },
     model::{
         application::interaction::application_command::ApplicationCommandInteraction,
-        id::{ChannelId, GuildId, UserId},
-        prelude::{
-            Message,
-            interaction::application_command::{CommandDataOption, CommandDataOptionValue},
-            command::CommandOptionType,
-        },
-        user::User,
-        guild::Guild,
     },
 };
 use songbird::{
     Songbird,
-    input,
-    tracks::create_player,
     error::JoinError,
 };
 
@@ -30,7 +14,8 @@ use crate::{
         command_handler::*,
         command_data::*,
         command_return::CommandReturn,
-    }
+    },
+    GuildQueueContainer,
 };
 
 #[derive(Debug)]
@@ -76,7 +61,17 @@ pub async fn establish_connection(ctx: &Context, command: &ApplicationCommandInt
                 None => {
                     let (_, join_result) = voice_manager.join(guild.id, user_ch_id).await;
                     match join_result {
-                        Ok(()) => Ok(ConnectionSuccessCode::NewConnection),
+                        Ok(()) => {
+                            let gid = command.guild_id.unwrap();
+                            let data = ctx.data.read().await;
+                            let data = data.get::<GuildQueueContainer>().unwrap();
+                            let queue_lock = data.get(&gid).unwrap();
+                            {
+                                let mut queue = queue_lock.write().await;
+                                queue.chat_channel = Some(command.channel_id);
+                            }
+                            Ok(ConnectionSuccessCode::NewConnection)
+                        },
                         Err(why) => {
                             Err(ConnectionErrorCode::JoinError(why))
                         }
@@ -91,14 +86,22 @@ pub async fn establish_connection(ctx: &Context, command: &ApplicationCommandInt
 pub async fn terminate_connection(ctx: &Context, command: &ApplicationCommandInteraction) {
     
     let gid = command.guild_id.unwrap();
-    let guild = ctx.cache.guild(gid).unwrap();
     let voice_manager = songbird::get(ctx).await.expect("Songbird Voice client placed in at initialisation.");
 
-    let handler_lock = voice_manager.get(guild.id).expect("Guild Not Found");
+    let handler_lock = voice_manager.get(gid).expect("Guild Not Found");
     handler_lock
         .lock()
         .await
         .leave()
         .await
         .expect("Disconnect Fail");
+
+    let data = ctx.data.read().await;
+    let data = data.get::<GuildQueueContainer>().unwrap();
+    let queue_lock = data.get(&gid).unwrap();
+    {
+        let mut queue = queue_lock.write().await;
+        queue.chat_channel = None;
+    }
+
 }

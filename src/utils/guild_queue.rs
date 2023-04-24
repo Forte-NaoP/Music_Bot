@@ -4,24 +4,30 @@ use serenity::model::{
     id::{ChannelId, GuildId},
 };
 
-use songbird::input::Input;
 use songbird::tracks::TrackHandle;
-use songbird::input::Metadata;
 
 use std::sync::Arc;
-use std::cell::RefCell;
 use std::collections::VecDeque;
 use tokio::sync::RwLock;
-use tokio::sync::Mutex;
 
 use crate::GuildQueueContainer;
 pub struct GuildQueue {
     pub gid: GuildId,
+
+    // the channel where the bot will join
     pub voice_channel: Option<ChannelId>,
+
+    // the channel where the bot observes the chat
     pub chat_channel: Option<ChannelId>,
-    //pub src_queue: Arc<RwLock<VecDeque<Input>>>,
+    
+    // the queue of songs
     pub url_queue: Box<VecDeque<String>>,
-    pub now_playing: Option<TrackHandle>,
+
+    // the current song
+    pub now_playing: Option<Arc<TrackHandle>>,
+
+    // keyword for skipping the current song
+    pub skip_keyword: Option<Vec<String>>,
 }
 
 impl GuildQueue {
@@ -33,6 +39,7 @@ impl GuildQueue {
             //src_queue: Arc::new(RwLock::new(VecDeque::new())),
             url_queue: Box::new(VecDeque::new()),
             now_playing: None,
+            skip_keyword: None,
         }
     }
 

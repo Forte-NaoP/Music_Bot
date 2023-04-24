@@ -1,39 +1,29 @@
-use std::{vec, collections::VecDeque, time::Duration, sync::Arc, fs::metadata};
+use std::{
+    time::Duration,
+    sync::Arc,
+};
 
-use tokio::time::sleep;
 use serenity::{
     async_trait,
     builder::{CreateApplicationCommand, CreateEmbed},
     client::{
         Context,
     },
-    framework::standard::{
-        CommandResult, Args,
-    },
     model::{
         application::interaction::application_command::ApplicationCommandInteraction,
         id::{ChannelId, GuildId, UserId},
         prelude::{
             Message,
-            interaction::application_command::{CommandDataOption, CommandDataOptionValue},
+            interaction::application_command::{CommandDataOption},
             command::CommandOptionType,
         },
-        user::User,
-        guild::Guild,
-        Timestamp,
     },
     http::Http,
 };
 use songbird::{
-    Songbird,
-    input::{ffmpeg, ffmpeg_optioned, *},
-
-    tracks::{create_player, PlayMode},
-    EventHandler as VoiceEventHandler,
-    EventContext,
     Event, TrackEvent,
 };
-
+use std::time::{Instant};
 use crate::{
     command_handler::{
         command_handler::*,
@@ -44,11 +34,12 @@ use crate::{
         url_checker::{url_checker},
         audio_module::{
             youtube_dl::ytdl_optioned,
-            track_event_handler::TrackEndNotifier,
+            track_event_handler::{TrackEndNotifier, TrackQueuingNotifier},
         },
         play_info_notifier::{create_play_info_embed, update_play_info_embed}
     },
     connection_handler::*,
+    GuildQueueContainer
 };
 
 struct Play;
@@ -76,7 +67,6 @@ impl CommandInterface for Play {
         };
 
         let gid = command.guild_id.unwrap();
-        let guild = ctx.cache.guild(gid).unwrap();
         let voice_manager = songbird::get(ctx).await.expect("Songbird Voice client placed in at initialisation.");    
         
         let url = Option::<String>::from(DataWrapper::from(options, 0)).unwrap();
@@ -91,12 +81,18 @@ impl CommandInterface for Play {
             None => 0,
         };
 
+        let skip_keyword = Option::<String>::from(DataWrapper::from(options, 3));
+
         let url = match url_checker(url.as_str()) {
             Some(url) => url,
             None => return CommandReturn::String("url이 잘못되었습니다.".to_string()),
         };
 
+        let start = Instant::now();
         let src = ytdl_optioned(url, start_time, play_time).await.unwrap();
+        let d = start.elapsed();
+        println!("{:?} elapsed", d);
+
         let metadata = src.metadata.clone();
         let title = metadata.title.unwrap();
         let duration = if play_time != 0 {
@@ -108,7 +104,28 @@ impl CommandInterface for Play {
         let handler_lock = voice_manager.get(gid).unwrap();
         let mut handler = handler_lock.lock().await;
 
-        let audio_handle = handler.enqueue_source(src);
+        let data = ctx.data.read().await;
+        let data = data.get::<GuildQueueContainer>().unwrap();
+        let queue_lock = data.get(&gid).unwrap();
+        let audio_handle = Arc::new(handler.enqueue_source(src));
+        {
+            let mut queue = queue_lock.write().await;
+            handler.add_global_event(Event::Track(TrackEvent::End), 
+                TrackEndNotifier {
+                    http: ctx.http.clone(),
+                    guild_queue: queue_lock.clone(),
+                    voice_manager: handler_lock.clone(),
+                }
+            );
+            queue.now_playing = Some(audio_handle.clone());
+            if let Some(skip_keyword) = skip_keyword {
+                let skip_keyword = skip_keyword.split(',')
+                    .map(|s| s.to_string().trim().to_string())
+                    .collect::<Vec<String>>();
+                println!("skip_keyword {:?}", skip_keyword);
+                queue.skip_keyword = Some(skip_keyword);
+            }
+        }  
 
         let mut current_time = Duration::from_secs(0);
         let mut last_edit_time = audio_handle.get_info().await.unwrap().position;
@@ -173,6 +190,13 @@ impl CommandInterface for Play {
                     .name("시작시간")
                     .description("시작시간(초)")
                     .kind(CommandOptionType::Integer)
+                    .required(false)
+            })
+            .create_option(|option| {
+                option
+                    .name("스킵")
+                    .description("곡을 스킵할 때 사용할 키워드 ,(콤마)로 구분")
+                    .kind(CommandOptionType::String)
                     .required(false)
             })
     }

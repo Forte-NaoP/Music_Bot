@@ -22,6 +22,13 @@ impl VoiceEventHandler for TrackEndNotifier {
         if let EventContext::Track(track_list) = ctx {
             println!("Song has ended: {:?}", track_list);
         }
+        {
+            let (mut guild_queue, mut voice_manager) = 
+                tokio::join!(self.guild_queue.write(), self.voice_manager.lock());
+            voice_manager.remove_all_global_events();
+            guild_queue.now_playing = None;
+            guild_queue.skip_keyword = None;
+        }
         None
     }
 }
@@ -43,12 +50,13 @@ impl VoiceEventHandler for TrackQueuingNotifier {
                 tokio::join!(self.guild_queue.write(), self.voice_manager.lock());
             if !guild_queue.url_queue.is_empty() {
                 let url = guild_queue.url_queue.pop_front().unwrap();
-                let input = ytdl_optioned(url, 10, 20).await.unwrap();
+                let input = ytdl_optioned(url, 10, 30).await.unwrap();
                 let handle = voice_manager.play_source(input);
-                guild_queue.now_playing = Some(handle);
+                guild_queue.now_playing = Some(Arc::new(handle));
             } else {
                 voice_manager.remove_all_global_events();
                 guild_queue.now_playing = None;
+                guild_queue.skip_keyword = None;
             }
         }
         None
